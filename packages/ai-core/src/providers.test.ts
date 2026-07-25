@@ -4,6 +4,7 @@ import {
   getProvider,
   defaultModel,
   credentialMeta,
+  hasConfiguredProvider,
   pickActiveProvider,
 } from "./providers";
 
@@ -32,6 +33,13 @@ describe("ai-providers", () => {
     expect(credentialMeta("ollama").label).toBe("Host URL");
     expect(credentialMeta("ollama").placeholder).toContain("localhost");
     expect(credentialMeta("openai").label).toBe("API key");
+  });
+
+  it("describes AI Pass as an OAuth account with no hardcoded models", () => {
+    const provider = getProvider("aipass");
+    expect(provider?.auth).toBe("oauth");
+    expect(provider?.models).toEqual([]);
+    expect(defaultModel("aipass")).toBe("");
   });
 });
 
@@ -74,5 +82,24 @@ describe("pickActiveProvider", () => {
     expect(r.providerId).toBe("openai");
     expect(r.modelId).toBe(defaultModel("openai"));
     expect(r.credential).toBe("");
+  });
+
+  it("selects a connected AI Pass account without putting a token in config", () => {
+    const r = pickActiveProvider({
+      ai_provider: "aipass",
+      ai_model: "discovered-live-model",
+      ai_keys: {},
+      aipass_connected: true,
+    });
+    expect(r).toEqual({
+      providerId: "aipass",
+      modelId: "discovered-live-model",
+      credential: "",
+    });
+    expect(hasConfiguredProvider({
+      ai_provider: "aipass",
+      ai_model: "discovered-live-model",
+      aipass_connected: true,
+    })).toBe(true);
   });
 });

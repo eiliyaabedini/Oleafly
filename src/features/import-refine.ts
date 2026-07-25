@@ -2,6 +2,7 @@ import { modelSupportsVision } from "@oleafly/ai-core";
 import { hasConfiguredProvider, resolveActiveModel } from "@/lib/ai-providers";
 import { pdfPageToPng } from "@/lib/pdf-image";
 import { getConfig } from "@/lib/tauri";
+import { listAiPassModels } from "@/lib/aipass";
 import { useAgentHandoffStore } from "@/store/agent-handoff";
 import { useImportStore } from "@/store/import";
 import { createProjectFromConversion } from "@/features/import";
@@ -13,6 +14,11 @@ export async function refineAvailable(): Promise<boolean> {
     const cfg = await getConfig();
     if (!hasConfiguredProvider(cfg)) return false;
     const { providerId, modelId } = resolveActiveModel(cfg);
+    if (providerId === "aipass") {
+      return (await listAiPassModels()).some(
+        (model) => model.id === modelId && model.supports_vision,
+      );
+    }
     return modelSupportsVision(providerId, modelId);
   } catch {
     return false;

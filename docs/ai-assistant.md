@@ -4,10 +4,14 @@ Oleafly has a built-in AI assistant that can read and edit your files, compile y
 
 ## Connect a provider
 
-Open Settings → AI Assistant. There's a card for each supported provider. Paste your key and hit Save, and that provider becomes active.
+Open Settings → AI Assistant. There's a card for each supported provider.
+Choose **Connect AI Pass** to authorize an AI Pass account in your system
+browser, or save a key for one of the existing API-key providers. The provider
+you connect becomes active.
 
 | Provider | Type | Notes |
 |---|---|---|
+| **AI Pass** | OAuth account | Live-discovered models, spending from your shared AI Pass wallet |
 | **OpenAI** | API key | GPT-4o, GPT-4.1, o3-mini |
 | **Anthropic** | API key | Claude Sonnet 4, 3.5 Sonnet/Haiku |
 | **Groq** | API key | Very fast Llama inference |
@@ -18,8 +22,11 @@ Open Settings → AI Assistant. There's a card for each supported provider. Past
 | **Z.AI (GLM)** | API key | GLM coding models |
 | **Ollama** | Local host | Runs on your machine, no key needed |
 
-Each card links out to where you can grab a key. Keys stay local and are stored
-in an authenticated encrypted owner-only local store.
+API-key cards link to where you can create a key. Keys stay local and are stored
+in an authenticated encrypted owner-only local store. AI Pass is an account
+connection, not an API-key field: Oleafly uses Authorization Code with PKCE in
+the system browser, keeps OAuth tokens inside the native Rust core, and
+discovers the account's current models at runtime.
 
 ## Run it locally with Ollama
 
@@ -34,10 +41,11 @@ Each provider is a collapsible card, so the section stays tidy when you have sev
 
 ## Switching providers and models
 
-- The active provider is marked with a badge on the right of its card. Saving any provider's key makes it active.
+- The active provider is marked with a badge on the right of its card. Connecting AI Pass or saving a provider key makes it active.
 - Change the model from the dropdown on the active card.
 - If you have multiple keys, use **Activate** on any saved card to switch.
-- Click the trash icon on a card to delete that key. Deleting the active key disables AI access until you connect another.
+- Click the trash icon on an API-key card to delete that key, or choose
+  **Disconnect** on AI Pass to revoke and clear its native session.
 
 ## Custom instructions
 
@@ -96,4 +104,8 @@ Settings → AI Assistant → **Allow PDF page capture for AI** (on by default) 
 
 ## Privacy
 
-Your document content and keys stay on your machine. API calls go directly from the app to the provider you chose (or to `localhost` for Ollama). There's no Oleafly server in the middle.
+Credentials stay on your machine. Document content is sent only to the provider
+you chose, directly from the app (or to `localhost` for Ollama).
+For AI Pass, authenticated model discovery and chat transport run in the native
+core so bearer tokens never enter the webview. Stopping an AI Pass response
+also cancels its upstream request. There's no Oleafly server in the middle.

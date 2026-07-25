@@ -39,8 +39,9 @@ in reports about:
 These are documented trade-offs, not vulnerabilities - though we welcome help
 improving them:
 
-- **Secrets at rest** - AI provider credentials, GitHub tokens, and MCP tokens
-  are stored as AES-256-GCM authenticated ciphertext under `~/.oleafly/`.
+- **Secrets at rest** - AI provider credentials, AI Pass OAuth tokens, GitHub
+  tokens, and MCP tokens are stored as AES-256-GCM authenticated ciphertext
+  under `~/.oleafly/`.
   Ciphertext files, the separate encryption key, and the shared lock file are
   restricted to the current OS user. This prevents plaintext disclosure from
   configuration files, logs, process arguments, and casual filesystem

@@ -10,6 +10,7 @@ import { logError } from "@/lib/log";
 import { useInlineEditStore } from "@/store/inlineEdit";
 import { useSettingsStore } from "@/store/settings";
 import { listOllamaModels } from "@/lib/ollama";
+import { listAiPassModels, type AiPassModel } from "@/lib/aipass";
 import { getEditorView } from "@/components/editor/cm/controller";
 import { AiChrome, AiMark } from "@/components/ai/AiChrome";
 import { useAgentHandoffStore } from "@/store/agent-handoff";
@@ -26,6 +27,7 @@ export function InlineEditPanel() {
   const [providerReady, setProviderReady] = useState(true);
   const [config, setLocalConfig] = useState<AppConfig | null>(null);
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [aiPassModels, setAiPassModels] = useState<AiPassModel[]>([]);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -54,6 +56,14 @@ export function InlineEditPanel() {
     }
     void listOllamaModels(host).then(setOllamaModels).catch(() => setOllamaModels([]));
   }, [config?.ai_keys?.ollama]);
+
+  useEffect(() => {
+    if (!config?.aipass_connected) {
+      setAiPassModels([]);
+      return;
+    }
+    void listAiPassModels().then(setAiPassModels).catch(() => setAiPassModels([]));
+  }, [config?.aipass_connected]);
 
   useEffect(() => {
     return () => {
@@ -186,14 +196,18 @@ export function InlineEditPanel() {
   if (config?.ai_api_key && config.ai_provider && !keys[config.ai_provider]) {
     keys[config.ai_provider] = config.ai_api_key;
   }
+  if (config?.aipass_connected) keys.aipass = "native-account";
   const active = config ? pickActiveProvider(config) : null;
   const modelGroups = PROVIDERS.filter((provider) => (keys[provider.id] ?? "").trim()).map(
     (provider) => {
       const available =
-        provider.id === "ollama" && ollamaModels.length > 0
+        provider.id === "aipass"
+          ? aiPassModels.map(({ id, name }) => ({ id, name }))
+          : provider.id === "ollama" && ollamaModels.length > 0
           ? ollamaModels.map((id) => ({ id, name: id }))
           : [...provider.models];
       if (
+        provider.id !== "aipass" &&
         active?.providerId === provider.id &&
         active.modelId &&
         !available.some((model) => model.id === active.modelId)
@@ -216,7 +230,7 @@ export function InlineEditPanel() {
             <AiMark /> Set up an AI provider
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Add an API key (or local Ollama) to use inline AI edits.
+            Connect AI Pass, add an API key, or use local Ollama for inline AI edits.
           </p>
           <button
             type="button"

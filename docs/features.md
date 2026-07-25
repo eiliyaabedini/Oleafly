@@ -154,7 +154,9 @@ A chat assistant that can actually _do_ things to your project:
 - Every file-changing edit pauses for approval with a red/green diff preview, and the decision stays visible in the chat.
 - Add your own custom instructions, sandboxed so they cannot reveal or override the built-in prompt.
 
-Bring any provider: OpenAI, Anthropic, Groq, OpenRouter, DeepSeek, Mistral, xAI, Z.AI, or run locally with Ollama. See [AI Assistant](ai-assistant.md).
+Connect an AI Pass account, use OpenAI, Anthropic, Groq, OpenRouter, DeepSeek,
+Mistral, xAI, or Z.AI with an API key, or run locally with Ollama. See
+[AI Assistant](ai-assistant.md).
 
 ## MCP server
 

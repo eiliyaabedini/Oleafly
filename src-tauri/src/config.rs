@@ -25,6 +25,10 @@ pub struct AppConfig {
     /// Active AI model id.
     #[serde(default)]
     pub ai_model: String,
+    /// Derived, never trusted from disk: whether native AI Pass OAuth tokens
+    /// are present. Tokens themselves never enter AppConfig or the webview.
+    #[serde(default)]
+    pub aipass_connected: bool,
     /// Per-provider credentials: provider id -> API key (or host URL for Ollama).
     #[serde(default)]
     pub ai_keys: HashMap<String, String>,
@@ -76,6 +80,7 @@ impl Default for AppConfig {
             ai_api_key: String::new(),
             ai_provider: String::new(),
             ai_model: String::new(),
+            aipass_connected: false,
             ai_keys: HashMap::new(),
             ai_system_prompt: String::new(),
             ai_pdf_capture: true,
@@ -152,6 +157,7 @@ fn persist_without_plaintext_secrets(config: &AppConfig) -> Result<(), String> {
     disk.mcp_token = String::new();
     disk.ai_keys = HashMap::new();
     disk.ai_api_key = String::new();
+    disk.aipass_connected = false;
     disk.github_connected = false;
     write_config_at(&config_path()?, &disk)
 }
@@ -196,6 +202,7 @@ pub fn get_config() -> Result<AppConfig, String> {
     // (The AI keys stay, since the frontend calls those providers directly.)
     cfg.github_connected = !cfg.github_token.is_empty();
     cfg.github_token = String::new();
+    cfg.aipass_connected = crate::aipass::local_status()?.connected;
     // Same for the MCP bearer token: only `mcp_connection_info` may hand it
     // to the webview (for Settings copy buttons while the server is running).
     cfg.mcp_token = String::new();
@@ -214,6 +221,7 @@ pub fn set_config(mut config: AppConfig) -> Result<(), String> {
         }
     }
     config.github_connected = false;
+    config.aipass_connected = false;
     write_config(&config)
 }
 

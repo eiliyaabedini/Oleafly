@@ -33,6 +33,7 @@ import {
 import { useFilesStore } from "@/store/files";
 import { getConfig, setConfig, gitLog, gitAutoCommit, type AppConfig } from "@/lib/tauri";
 import { listOllamaModels } from "@/lib/ollama";
+import { listAiPassModels, type AiPassModel } from "@/lib/aipass";
 import { registry, type AiToolsetContribution } from "@oleafly/registry";
 import type { ToolApprovalRequest } from "@/lib/ai-tools";
 import { FIGURE_SYSTEM_PROMPT, modelSupportsVision, setFigureInsertTarget } from "@/lib/ai-figure";
@@ -192,6 +193,7 @@ export function ChatCore() {
   // So the switcher can offer every provider the user has set up, not just the default one.
   const [keysMap, setKeysMap] = useState<Record<string, string>>({});
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [aiPassModels, setAiPassModels] = useState<AiPassModel[]>([]);
   const [thinkingText, setThinkingText] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [connectSourcesOpen, setConnectSourcesOpen] = useState(false);
@@ -350,13 +352,16 @@ export function ChatCore() {
         const keys = { ...(cfg.ai_keys ?? {}) };
         // Fold the legacy single key into the map so it counts as configured.
         if (cfg.ai_api_key && !keys[saved]) keys[saved] = cfg.ai_api_key;
+        // Presence marker only. OAuth bearer tokens remain in Rust and never
+        // enter this map, React state, config events, or browser persistence.
+        if (cfg.aipass_connected) keys.aipass = "native-account";
         setKeysMap(keys);
         // Use the saved provider if it has a key; otherwise fall back to the
         // first configured one (e.g. the saved provider's key was removed).
         const configured = Object.keys(keys).filter((k) => (keys[k] ?? "").trim());
         const provider = (keys[saved] ?? "").trim() ? saved : configured[0] ?? saved;
         setProvider(provider);
-        setApiKey(keys[provider] || "");
+        setApiKey(provider === "aipass" ? "" : keys[provider] || "");
         setModel(
           provider === saved && cfg.ai_model ? cfg.ai_model : defaultModel(provider)
         );
@@ -394,12 +399,46 @@ export function ChatCore() {
       .catch(() => setOllamaModels([]));
   }, [keysMap.ollama]);
 
+  useEffect(() => {
+    if (!keysMap.aipass) {
+      setAiPassModels([]);
+      return;
+    }
+    let cancelled = false;
+    void listAiPassModels()
+      .then((models) => {
+        if (cancelled) return;
+        setAiPassModels(models);
+        if (provider !== "aipass") return;
+        setModel((current) => {
+          const selected = models.some((candidate) => candidate.id === current)
+            ? current
+            : models[0]?.id ?? "";
+          if (selected && selected !== current) {
+            void getConfig()
+              .then((cfg) => setConfig({ ...cfg, ai_provider: "aipass", ai_model: selected }))
+              .catch(() => {});
+          }
+          return selected;
+        });
+        setApiKey(models.length > 0 ? "native-account" : "");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setAiPassModels([]);
+        if (provider === "aipass") setApiKey("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [keysMap.aipass, provider]);
+
   // Persists as the new default provider/model.
   const selectModel = useCallback(
     async (pid: string, mid: string) => {
       setProvider(pid);
       setModel(mid);
-      setApiKey(keysMap[pid] || "");
+      setApiKey(pid === "aipass" ? (aiPassModels.length ? "native-account" : "") : keysMap[pid] || "");
       try {
         const cfg = await getConfig();
         await setConfig({ ...cfg, ai_provider: pid, ai_model: mid });
@@ -407,7 +446,7 @@ export function ChatCore() {
         /* non-fatal: the switch still applies to this session */
       }
     },
-    [keysMap]
+    [aiPassModels.length, keysMap]
   );
 
   // Providers the user has set up (a non-empty key/host), in catalog order.
@@ -416,10 +455,13 @@ export function ChatCore() {
   );
   const modelGroups = configuredProviders.map((configuredProvider) => {
     const available =
-      configuredProvider.id === "ollama" && ollamaModels.length > 0
+      configuredProvider.id === "aipass"
+        ? aiPassModels.map(({ id, name }) => ({ id, name }))
+        : configuredProvider.id === "ollama" && ollamaModels.length > 0
         ? ollamaModels.map((id) => ({ id, name: id }))
         : [...configuredProvider.models];
     if (
+      configuredProvider.id !== "aipass" &&
       configuredProvider.id === provider &&
       model &&
       !available.some((availableModel) => availableModel.id === model)
@@ -984,7 +1026,13 @@ ${sandboxedCustom}`;
         // (verify_pdf_pages and figure preview_figure both push via onImage.)
         if (pendingImagesRef.current.length) {
           const imgs = pendingImagesRef.current.splice(0);
-          if (modelSupportsVision(provider, model)) {
+          if (
+            provider === "aipass"
+              ? aiPassModels.some(
+                  (candidate) => candidate.id === model && candidate.supports_vision,
+                )
+              : modelSupportsVision(provider, model)
+          ) {
             const content: UserContent = [
               {
                 type: "text",
@@ -1153,7 +1201,7 @@ ${sandboxedCustom}`;
         }
       }
     }
-  }, [messages, streaming, apiKey, provider, model, projectId, projectName, currentHead, figureMode, figureModeAvailable, engineLoaded, documentEngine, projectKind, openAISettings, flushStreamPatches, updateLast]);
+  }, [messages, streaming, apiKey, provider, model, aiPassModels, projectId, projectName, currentHead, figureMode, figureModeAvailable, engineLoaded, documentEngine, projectKind, openAISettings, flushStreamPatches, updateLast]);
 
   useEffect(() => {
     const onSelectionAction = (e: Event) => {

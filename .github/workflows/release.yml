@@ -130,6 +130,11 @@ jobs:
           # succeeds but produces no auto-update feed.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Optional AI Pass account connection. Both values are protected
+          # build configuration; builds without them fail closed and keep every
+          # existing AI provider available.
+          AIPASS_OAUTH_CLIENT_ID: ${{ secrets.AIPASS_OAUTH_CLIENT_ID }}
+          AIPASS_OAUTH_REDIRECT_URI: ${{ secrets.AIPASS_OAUTH_REDIRECT_URI }}
         with:
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: "Oleafly ${{ github.event.inputs.tag || github.ref_name }}"

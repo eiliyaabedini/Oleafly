@@ -17,7 +17,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["macos-private-api"] }
 tokio = { version = "1", features = ["time", "sync", "macros", "process", "io-util"] }
-axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
 tauri-plugin-shell = "2"
 tauri-plugin-playwright = { version = "0.4", optional = true }
 tauri-plugin-dialog = "2"
@@ -44,6 +44,7 @@ sha2 = "0.10"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
 rand = "0.8"
 ring = "0.17"
+subtle = "2"
 libc = "0.2"
 serde_yaml = "0.9"
 

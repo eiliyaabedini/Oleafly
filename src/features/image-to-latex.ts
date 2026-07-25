@@ -4,6 +4,7 @@ import { modelSupportsVision } from "@/lib/ai-figure";
 import { hasConfiguredProvider, resolveActiveModel } from "@/lib/ai-providers";
 import { logError } from "@/lib/log";
 import { getConfig } from "@/lib/tauri";
+import { listAiPassModels } from "@/lib/aipass";
 import { toast } from "@/lib/toast";
 
 export async function imageToLatexAvailable(): Promise<boolean> {
@@ -11,6 +12,11 @@ export async function imageToLatexAvailable(): Promise<boolean> {
     const cfg = await getConfig();
     if (!hasConfiguredProvider(cfg)) return false;
     const { providerId, modelId } = resolveActiveModel(cfg);
+    if (providerId === "aipass") {
+      return (await listAiPassModels()).some(
+        (model) => model.id === modelId && model.supports_vision,
+      );
+    }
     return modelSupportsVision(providerId, modelId);
   } catch {
     return false;

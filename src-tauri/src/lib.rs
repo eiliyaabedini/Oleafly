@@ -1,3 +1,4 @@
+mod aipass;
 mod assets;
 mod chats;
 mod citation;
@@ -106,6 +107,12 @@ pub fn run() {
             github::gh_clear_token,
             github::gh_list_repos,
             github::gh_create_repo,
+            aipass::aipass_status,
+            aipass::aipass_connect,
+            aipass::aipass_disconnect,
+            aipass::aipass_list_models,
+            aipass::aipass_chat_completions,
+            aipass::aipass_cancel_request,
             ollama::ollama_list_models,
             synctex::synctex_forward,
             synctex::synctex_inverse,

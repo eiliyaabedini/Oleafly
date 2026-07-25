@@ -1,5 +1,5 @@
 //! Encrypted, on-disk storage for long-lived secrets (GitHub token, MCP token,
-//! AI provider keys).
+//! AI provider keys, and the atomic AI Pass OAuth token snapshot).
 //!
 //! Nothing here touches the OS keychain. An unsigned dev build gets a fresh code
 //! identity each launch, so the keychain never remembers its access grant and
@@ -151,7 +151,8 @@ fn ai_secrets_path() -> Result<std::path::PathBuf, String> {
     Ok(crate::paths::oleafly_root()?.join("ai-secrets.json"))
 }
 
-// GitHub + MCP tokens live here, encrypted with the same key as the secrets.
+// GitHub, MCP, and AI Pass OAuth tokens live here, encrypted with the same key
+// as the other secret stores.
 fn app_secrets_path() -> Result<std::path::PathBuf, String> {
     Ok(crate::paths::oleafly_root()?.join("app-secrets.json"))
 }

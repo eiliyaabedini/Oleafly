@@ -28,6 +28,14 @@ import {
   getProvider,
 } from "@/lib/ai-providers";
 import { listOllamaModels, DEFAULT_OLLAMA_HOST } from "@/lib/ollama";
+import {
+  aipassStatus,
+  connectAiPass,
+  disconnectAiPass,
+  listAiPassModels,
+  type AiPassModel,
+  type AiPassStatus,
+} from "@/lib/aipass";
 import { AiToolsGrid } from "@/components/ai/AiToolsList";
 import { cn } from "@/lib/utils";
 
@@ -174,6 +182,7 @@ const DEFAULT_CFG: AppConfig = {
   ai_api_key: "",
   ai_provider: "openai",
   ai_model: "gpt-4o-mini",
+  aipass_connected: false,
   ai_keys: {},
   ai_system_prompt: "",
   ai_pdf_capture: true,
@@ -199,6 +208,11 @@ export function AISection() {
     status: "idle" | "loading" | "ok" | "down";
     models: string[];
   }>({ status: "idle", models: [] });
+  const [aiPass, setAiPass] = useState<{
+    loading: boolean;
+    status: AiPassStatus | null;
+    models: AiPassModel[];
+  }>({ loading: true, status: null, models: [] });
 
   useEffect(() => {
     void getConfig().then((c) => {
@@ -220,6 +234,32 @@ export function AISection() {
       }
     });
   }, []);
+
+  const refreshAiPass = useCallback(async () => {
+    setAiPass((current) => ({ ...current, loading: true }));
+    try {
+      const status = await aipassStatus();
+      if (!status.connected) {
+        setAiPass({ loading: false, status, models: [] });
+        return { status, models: [] };
+      }
+      try {
+        const models = await listAiPassModels();
+        setAiPass({ loading: false, status, models });
+        return { status, models };
+      } catch {
+        setAiPass({ loading: false, status, models: [] });
+        return { status, models: [] };
+      }
+    } catch {
+      setAiPass((current) => ({ ...current, loading: false }));
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshAiPass();
+  }, [refreshAiPass]);
 
   const activeProvider = cfg.ai_provider;
 
@@ -298,6 +338,91 @@ export function AISection() {
     }
   };
 
+  const connectAccount = async () => {
+    setSaving("aipass");
+    setMsg(null);
+    try {
+      const status = await connectAiPass();
+      const models = await listAiPassModels();
+      if (models.length === 0) throw new Error("AI Pass returned no chat models.");
+      const selected =
+        cfg.ai_provider === "aipass" &&
+        models.some((candidate) => candidate.id === cfg.ai_model)
+          ? cfg.ai_model
+          : models[0].id;
+      const next = {
+        ...cfg,
+        aipass_connected: true,
+        ai_provider: "aipass",
+        ai_model: selected,
+      };
+      await persist(next);
+      setAiPass({ loading: false, status, models });
+      setMsg({ ok: true, text: "AI Pass connected and now active." });
+    } catch (error) {
+      await refreshAiPass();
+      setMsg({ ok: false, text: String(error) });
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const activateAccount = async () => {
+    setSaving("aipass");
+    setMsg(null);
+    try {
+      const refreshed =
+        aiPass.models.length > 0
+          ? { status: aiPass.status, models: aiPass.models }
+          : await refreshAiPass();
+      const model =
+        refreshed?.models.find((candidate) => candidate.id === cfg.ai_model)?.id ??
+        refreshed?.models[0]?.id;
+      if (!model) throw new Error("AI Pass returned no chat models.");
+      await persist({
+        ...cfg,
+        aipass_connected: true,
+        ai_provider: "aipass",
+        ai_model: model,
+      });
+    } catch (error) {
+      setMsg({ ok: false, text: String(error) });
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const disconnectAccount = async () => {
+    setSaving("aipass");
+    setMsg(null);
+    try {
+      const result = await disconnectAiPass();
+      const wasActive = cfg.ai_provider === "aipass";
+      await persist({
+        ...cfg,
+        aipass_connected: false,
+        ai_provider: wasActive ? "" : cfg.ai_provider,
+        ai_model: wasActive ? "" : cfg.ai_model,
+      });
+      setAiPass({
+        loading: false,
+        status: { available: aiPass.status?.available ?? true, connected: false, profile: null },
+        models: [],
+      });
+      setMsg({
+        ok: result.revoked,
+        text: result.revoked
+          ? "AI Pass disconnected."
+          : "AI Pass was cleared locally. Remote revocation could not be confirmed.",
+      });
+    } catch (error) {
+      await refreshAiPass();
+      setMsg({ ok: false, text: String(error) });
+    } finally {
+      setSaving(null);
+    }
+  };
+
   const activate = async (id: string) => {
     if (cfg.ai_provider === id) return;
     setSaving(id);
@@ -364,17 +489,20 @@ export function AISection() {
     <div className="space-y-4 text-sm">
 
       <p className="text-xs text-muted-foreground">
-        Connect any providers you use below. Keys are stored locally only. Saving one sets it as the
-        default; switch between configured providers and models anytime from the dropdown in the chat
-        panel.
+        Connect any providers you use below. AI Pass uses an account connection and shared wallet;
+        other provider keys stay in Oleafly's encrypted local store. Connecting one sets it as the
+        default, and you can switch anytime.
       </p>
 
       <div className="space-y-2.5">
         {PROVIDERS.map((p) => {
+          const isAiPass = p.id === "aipass";
           const value = keys[p.id] ?? "";
           const saved = savedKeys[p.id] ?? "";
           const dirty = value.trim().length > 0 && value !== saved;
-          const hasSaved = saved.length > 0;
+          const hasSaved = isAiPass
+            ? (aiPass.status?.connected ?? cfg.aipass_connected)
+            : saved.length > 0;
           const isSelected = activeProvider === p.id;
           const isActive = isSelected && hasSaved;
           // Settings never recommends or expands a provider implicitly. The
@@ -424,7 +552,88 @@ export function AISection() {
                 )}
               </div>
 
-              {!isOpen ? null : p.id === "ollama" ? (
+              {!isOpen ? null : isAiPass ? (
+                <div className="space-y-2 px-3 pb-3">
+                  {!aiPass.loading && aiPass.status?.available === false ? (
+                    <p className="rounded-md border border-dashed p-3 text-[11px] text-muted-foreground">
+                      AI Pass connection is not configured in this build.
+                    </p>
+                  ) : hasSaved ? (
+                    <>
+                      {aiPass.status?.profile && (
+                        <p className="text-[11px] text-muted-foreground">
+                          Connected as{" "}
+                          {aiPass.status.profile.display_name ??
+                            aiPass.status.profile.email ??
+                            "AI Pass user"}
+                        </p>
+                      )}
+                      {isSelected && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-muted-foreground">Model</span>
+                          <Select
+                            value={cfg.ai_model || undefined}
+                            onValueChange={(value) => void changeModel(value)}
+                            disabled={aiPass.loading || aiPass.models.length === 0}
+                          >
+                            <SelectTrigger className="h-8 flex-1">
+                              <SelectValue
+                                placeholder={aiPass.loading ? "Loading models…" : "Choose model"}
+                              />
+                            </SelectTrigger>
+                            <SelectContent className="z-[100]">
+                              {aiPass.models.map((model) => (
+                                <SelectItem key={model.id} value={model.id}>
+                                  {model.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2">
+                        {!isActive && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={saving === "aipass" || aiPass.loading}
+                            onClick={() => void activateAccount()}
+                          >
+                            Activate
+                          </Button>
+                        )}
+                        <button
+                          type="button"
+                          data-testid="ai-provider-disconnect-aipass"
+                          disabled={saving === "aipass"}
+                          onClick={() => void disconnectAccount()}
+                          className="text-[11px] text-muted-foreground hover:text-destructive disabled:opacity-40"
+                        >
+                          Disconnect
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <Button
+                      size="sm"
+                      data-testid="ai-provider-connect-aipass"
+                      disabled={
+                        saving === "aipass" ||
+                        aiPass.loading ||
+                        aiPass.status?.available === false
+                      }
+                      onClick={() => void connectAccount()}
+                    >
+                      {saving === "aipass" ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Sparkles className="size-3.5" />
+                      )}
+                      Connect AI Pass
+                    </Button>
+                  )}
+                </div>
+              ) : p.id === "ollama" ? (
                 <div className="px-3 pb-3">
                   <OllamaSetup
                     active={isActive}

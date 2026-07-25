@@ -126,8 +126,9 @@ engine capability becomes truthful. Do not add extension-based UI exceptions.
   live here.
 - Secrets: `~/.oleafly/ai-secrets.json` and
   `~/.oleafly/app-secrets.json`, encrypted with the owner-only
-  `~/.oleafly/ai-secrets.key`. GitHub and MCP share `app-secrets.json`. AI
-  provider credentials use `ai-secrets.json`.
+  `~/.oleafly/ai-secrets.key`. GitHub, MCP, and the atomic AI Pass OAuth token
+  snapshot share `app-secrets.json`. AI provider credentials use
+  `ai-secrets.json`.
 - Projects: `~/.oleafly/projects/<id>/`, plain folders with `.git`.
 - App log: `~/.oleafly/app.log`.
 
@@ -143,6 +144,18 @@ engine capability becomes truthful. Do not add extension-based UI exceptions.
 ## Sync and GitHub internals
 
 OAuth device flow runs server-side in Rust (`src-tauri/src/github.rs`) because the OAuth endpoints aren't CORS-enabled. The API calls (api.github.com) happen from the frontend.
+
+## Optional AI Pass build configuration
+
+AI Pass OAuth, token refresh, model discovery, chat streaming, and cancellation
+run in Rust. Release builders provide `AIPASS_OAUTH_CLIENT_ID` and
+`AIPASS_OAUTH_REDIRECT_URI` as protected build configuration; never put either
+value in source, logs, or example files. The redirect must be the exact URI
+registered on that public client and must use
+`http://127.0.0.1:<explicit-port>/<non-root-path>`. The native core rejects
+other schemes, hosts, implicit ports, credentials, query strings, and
+fragments. Builds missing either value fail closed by disabling only the AI
+Pass connection card.
 
 ## Coding style
 
