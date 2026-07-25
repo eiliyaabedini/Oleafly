@@ -34,7 +34,7 @@ use crate::{secrets, state::AppState};
 
 const ISSUER: &str = "https://aipass.one";
 const METADATA_URL: &str = "https://aipass.one/.well-known/oauth-authorization-server";
-const MODELS_URL: &str = "https://aipass.one/oauth2/v1/models?detailed=true";
+const MODELS_URL: &str = "https://aipass.one/oauth2/v1/models";
 const CHAT_URL: &str = "https://aipass.one/oauth2/v1/chat/completions";
 const TOKEN_ACCOUNT: &str = "aipass_oauth_tokens";
 const OAUTH_SCOPE: &str = "api:access profile:read";
@@ -919,15 +919,23 @@ fn model_supports_chat(value: &serde_json::Map<String, Value>) -> bool {
         != Some(false)
 }
 
+fn validate_model_id(id: &str) -> Result<(), String> {
+    if id.is_empty() || id.trim().is_empty() || id.len() > 256 || id.chars().any(char::is_control) {
+        return Err("AI Pass model discovery returned an invalid model identifier.".into());
+    }
+    Ok(())
+}
+
 fn parse_models(value: &Value) -> Result<Vec<AiPassModel>, String> {
-    let entries = match value {
-        Value::Array(entries) => entries,
-        Value::Object(object) if object.get("object").and_then(Value::as_str) == Some("list") => {
+    let (entries, legacy_array) = match value {
+        Value::Array(entries) => (entries, true),
+        Value::Object(object) if object.get("object").and_then(Value::as_str) == Some("list") => (
             object
                 .get("data")
                 .and_then(Value::as_array)
-                .ok_or_else(|| "AI Pass model discovery returned an invalid list.".to_string())?
-        }
+                .ok_or_else(|| "AI Pass model discovery returned an invalid list.".to_string())?,
+            false,
+        ),
         Value::Object(_) => return Err("AI Pass model discovery returned an invalid list.".into()),
         _ => return Err("AI Pass model discovery returned an invalid response.".into()),
     };
@@ -935,16 +943,25 @@ fn parse_models(value: &Value) -> Result<Vec<AiPassModel>, String> {
     let mut models = Vec::new();
     for entry in entries {
         let (id, name, supports_vision) = match entry {
-            Value::String(id) => (id.as_str(), id.to_owned(), false),
-            Value::Object(object) if model_supports_chat(object) => {
-                let Some(id) = object.get("id").and_then(Value::as_str) else {
+            Value::String(id) if legacy_array => {
+                validate_model_id(id)?;
+                (id.as_str(), id.to_owned(), false)
+            }
+            Value::Object(object) => {
+                let id = object.get("id").and_then(Value::as_str).ok_or_else(|| {
+                    "AI Pass model discovery returned an invalid model identifier.".to_string()
+                })?;
+                validate_model_id(id)?;
+                if !model_supports_chat(object) {
                     continue;
-                };
+                }
                 (id, model_name(object, id), model_supports_vision(object))
             }
-            _ => continue,
+            _ => {
+                return Err("AI Pass model discovery returned an invalid model entry.".into());
+            }
         };
-        if id.is_empty() || id.len() > 256 || !seen.insert(id.to_owned()) {
+        if !seen.insert(id.to_owned()) {
             continue;
         }
         models.push(AiPassModel {
@@ -1302,16 +1319,26 @@ mod tests {
     }
 
     #[test]
+    fn model_discovery_uses_the_default_openai_compatible_endpoint() {
+        assert_eq!(MODELS_URL, "https://aipass.one/oauth2/v1/models");
+    }
+
+    #[test]
     fn model_discovery_accepts_openai_and_legacy_shapes_without_defaults() {
         let openai = parse_models(&json!({
             "object": "list",
             "data": [
                 {
-                    "id": "live-text",
+                    "id": "openai/live-text",
                     "name": "Live Text",
+                    "object": "model",
+                    "created": 1_700_000_000,
+                    "owned_by": "openai",
+                    "description": "A chat model",
                     "type": "text",
                     "capabilities": ["text", "streaming"],
-                    "methods": ["chat_completions", "responses"]
+                    "methods": ["chat_completions", "responses"],
+                    "future_additive_field": {"nested": true}
                 },
                 {
                     "id": "live-vision",
@@ -1326,7 +1353,7 @@ mod tests {
                     "methods": ["audio_speech"]
                 },
                 {"id": "image-only", "capabilities": {"chat": false}},
-                {"id": "live-text", "name": "duplicate"}
+                {"id": "openai/live-text", "name": "duplicate"}
             ]
         }))
         .unwrap();
@@ -1334,7 +1361,7 @@ mod tests {
             openai,
             vec![
                 AiPassModel {
-                    id: "live-text".into(),
+                    id: "openai/live-text".into(),
                     name: "Live Text".into(),
                     supports_vision: false,
                 },
@@ -1346,13 +1373,18 @@ mod tests {
             ]
         );
 
-        let legacy = parse_models(&json!(["model-b", "model-a", "", "model-a"])).unwrap();
+        let legacy = parse_models(&json!([
+            "provider/model-b",
+            {"id": "model-a"},
+            "provider/model-b"
+        ]))
+        .unwrap();
         assert_eq!(
             legacy
                 .iter()
                 .map(|model| model.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["model-b", "model-a"]
+            vec!["provider/model-b", "model-a"]
         );
         assert!(parse_models(&json!({"data": "not-an-array"})).is_err());
         assert!(parse_models(&json!({
@@ -1360,6 +1392,35 @@ mod tests {
             "data": [{"id": "must-not-be-accepted"}]
         }))
         .is_err());
+    }
+
+    #[test]
+    fn model_discovery_rejects_malformed_ids_instead_of_partially_accepting_a_list() {
+        for malformed in [
+            json!({"object": "list", "data": [
+                {"id": "valid/model", "methods": ["chat_completions"]},
+                {"id": "", "methods": ["chat_completions"]}
+            ]}),
+            json!({"object": "list", "data": [
+                {"id": "valid/model", "methods": ["chat_completions"]},
+                {"id": 42, "methods": ["chat_completions"]}
+            ]}),
+            json!(["valid/model", ""]),
+            json!([
+                "valid/model",
+                {"id": null}
+            ]),
+            json!({"object": "list", "data": [
+                {"id": "valid/model", "methods": ["chat_completions"]},
+                "legacy-string-is-not-valid-in-openai-data"
+            ]}),
+            json!({"object": "list", "data": [
+                {"id": "valid/model", "methods": ["chat_completions"]},
+                {"id": "\n", "methods": ["chat_completions"]}
+            ]}),
+        ] {
+            assert!(parse_models(&malformed).is_err(), "{malformed}");
+        }
     }
 
     #[test]
