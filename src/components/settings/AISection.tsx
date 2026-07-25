@@ -219,7 +219,7 @@ export function AISection() {
       // One-time migration from the old single ai_api_key field to the per-provider map.
       const merged: Record<string, string> = { ...(c.ai_keys ?? {}) };
       const legacy = c.ai_provider || "openai";
-      if (Object.keys(merged).length === 0 && c.ai_api_key) {
+      if (legacy !== "aipass" && Object.keys(merged).length === 0 && c.ai_api_key) {
         merged[legacy] = c.ai_api_key;
       }
       const next: AppConfig = { ...DEFAULT_CFG, ...c, ai_keys: merged };
@@ -229,7 +229,11 @@ export function AISection() {
       // not wipe an edit made before it landed.
       setKeys((prev) => ({ ...merged, ...prev }));
       setSavedKeys(merged);
-      if (Object.keys(c.ai_keys ?? {}).length === 0 && c.ai_api_key) {
+      if (
+        legacy !== "aipass" &&
+        Object.keys(c.ai_keys ?? {}).length === 0 &&
+        c.ai_api_key
+      ) {
         void setConfig(next);
       }
     });

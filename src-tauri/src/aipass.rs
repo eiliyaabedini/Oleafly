@@ -407,6 +407,17 @@ fn callback_response(status: StatusCode, message: &'static str) -> Response {
         header::CONTENT_SECURITY_POLICY,
         HeaderValue::from_static("default-src 'none'; frame-ancestors 'none'"),
     );
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, max-age=0"),
+    );
+    response
+        .headers_mut()
+        .insert("referrer-policy", HeaderValue::from_static("no-referrer"));
+    response.headers_mut().insert(
+        "x-content-type-options",
+        HeaderValue::from_static("nosniff"),
+    );
     response
 }
 
@@ -563,8 +574,20 @@ fn write_tokens(tokens: &StoredTokens) -> Result<(), String> {
     secrets::set_secret(TOKEN_ACCOUNT, &snapshot)
 }
 
+fn replace_tokens_for_connection(tokens: &StoredTokens) -> Result<Option<StoredTokens>, String> {
+    let previous = read_tokens()?;
+    write_tokens(tokens)?;
+    Ok(previous)
+}
+
 fn clear_tokens() -> Result<(), String> {
     secrets::set_secret(TOKEN_ACCOUNT, "")
+}
+
+fn take_tokens_for_disconnect() -> Result<Option<StoredTokens>, String> {
+    let tokens = read_tokens()?;
+    clear_tokens()?;
+    Ok(tokens)
 }
 
 pub fn local_status() -> Result<AiPassStatus, String> {
@@ -727,28 +750,30 @@ pub async fn aipass_connect(
     tokens.profile = fetch_profile(&metadata, &tokens.access_token)
         .await
         .unwrap_or(None);
-    let (previous, persist_result) = {
+    let persist_result = {
         let _auth_guard = state.aipass_auth_lock.lock().await;
-        let previous = read_tokens()?;
-        (previous, write_tokens(&tokens))
+        replace_tokens_for_connection(&tokens)
     };
-    if let Err(error) = persist_result {
-        let _ = revoke_token(
-            &metadata,
-            Some(&client.client_id),
-            &tokens.access_token,
-            "access_token",
-        )
-        .await;
-        let _ = revoke_token(
-            &metadata,
-            Some(&client.client_id),
-            &tokens.refresh_token,
-            "refresh_token",
-        )
-        .await;
-        return Err(error);
-    }
+    let previous = match persist_result {
+        Ok(previous) => previous,
+        Err(error) => {
+            let _ = revoke_token(
+                &metadata,
+                Some(&client.client_id),
+                &tokens.access_token,
+                "access_token",
+            )
+            .await;
+            let _ = revoke_token(
+                &metadata,
+                Some(&client.client_id),
+                &tokens.refresh_token,
+                "refresh_token",
+            )
+            .await;
+            return Err(error);
+        }
+    };
     if let Some(previous) = previous.filter(|previous| {
         previous.access_token != tokens.access_token
             || previous.refresh_token != tokens.refresh_token
@@ -815,8 +840,13 @@ pub async fn aipass_disconnect(
 ) -> Result<DisconnectResult, String> {
     let _connect_guard = state.aipass_connect_lock.lock().await;
     cancel_all_requests(&state).await;
-    let _auth_guard = state.aipass_auth_lock.lock().await;
-    let tokens = read_tokens()?;
+    // Remove the native session before any network work. A slow or unavailable
+    // metadata/revocation endpoint must not leave a locally usable bearer token
+    // behind, and new chat requests fail closed while revocation is attempted.
+    let tokens = {
+        let _auth_guard = state.aipass_auth_lock.lock().await;
+        take_tokens_for_disconnect()?
+    };
     let metadata = load_metadata().await.ok();
     let client_id = protected_client_id();
     let mut revoked = tokens.is_none();
@@ -837,10 +867,8 @@ pub async fn aipass_disconnect(
         .await;
         revoked = access_revoked && refresh_revoked;
     }
-    // Local disconnect is fail-safe even if the network revocation endpoint is
-    // unavailable. The result lets the UI explain that remote revocation could
-    // not be confirmed without retaining either token.
-    clear_tokens()?;
+    // The result lets the UI explain that remote revocation could not be
+    // confirmed without retaining either token locally.
     Ok(DisconnectResult { revoked })
 }
 
@@ -876,21 +904,31 @@ fn model_supports_vision(value: &serde_json::Map<String, Value>) -> bool {
             .is_some_and(|items| items.iter().any(|item| item.as_str() == Some("image")))
 }
 
-fn explicitly_not_chat(value: &serde_json::Map<String, Value>) -> bool {
+fn model_supports_chat(value: &serde_json::Map<String, Value>) -> bool {
+    if let Some(methods) = value.get("methods") {
+        return methods.as_array().is_some_and(|items| {
+            items
+                .iter()
+                .any(|item| item.as_str() == Some("chat_completions"))
+        });
+    }
     value
         .get("capabilities")
         .and_then(|item| item.get("chat"))
         .and_then(Value::as_bool)
-        == Some(false)
+        != Some(false)
 }
 
 fn parse_models(value: &Value) -> Result<Vec<AiPassModel>, String> {
     let entries = match value {
         Value::Array(entries) => entries,
-        Value::Object(object) => object
-            .get("data")
-            .and_then(Value::as_array)
-            .ok_or_else(|| "AI Pass model discovery returned an invalid list.".to_string())?,
+        Value::Object(object) if object.get("object").and_then(Value::as_str) == Some("list") => {
+            object
+                .get("data")
+                .and_then(Value::as_array)
+                .ok_or_else(|| "AI Pass model discovery returned an invalid list.".to_string())?
+        }
+        Value::Object(_) => return Err("AI Pass model discovery returned an invalid list.".into()),
         _ => return Err("AI Pass model discovery returned an invalid response.".into()),
     };
     let mut seen = HashSet::new();
@@ -898,7 +936,7 @@ fn parse_models(value: &Value) -> Result<Vec<AiPassModel>, String> {
     for entry in entries {
         let (id, name, supports_vision) = match entry {
             Value::String(id) => (id.as_str(), id.to_owned(), false),
-            Value::Object(object) if !explicitly_not_chat(object) => {
+            Value::Object(object) if model_supports_chat(object) => {
                 let Some(id) = object.get("id").and_then(Value::as_str) else {
                     continue;
                 };
@@ -1268,8 +1306,25 @@ mod tests {
         let openai = parse_models(&json!({
             "object": "list",
             "data": [
-                {"id": "live-text", "name": "Live Text", "capabilities": {"chat": true}},
-                {"id": "live-vision", "input_modalities": ["text", "image"]},
+                {
+                    "id": "live-text",
+                    "name": "Live Text",
+                    "type": "text",
+                    "capabilities": ["text", "streaming"],
+                    "methods": ["chat_completions", "responses"]
+                },
+                {
+                    "id": "live-vision",
+                    "type": "multimodal",
+                    "capabilities": ["text", "image", "vision"],
+                    "methods": ["chat_completions", "responses"]
+                },
+                {
+                    "id": "audio-only",
+                    "type": "audio",
+                    "capabilities": ["audio", "text"],
+                    "methods": ["audio_speech"]
+                },
                 {"id": "image-only", "capabilities": {"chat": false}},
                 {"id": "live-text", "name": "duplicate"}
             ]
@@ -1300,6 +1355,11 @@ mod tests {
             vec!["model-b", "model-a"]
         );
         assert!(parse_models(&json!({"data": "not-an-array"})).is_err());
+        assert!(parse_models(&json!({
+            "object": "not-a-list",
+            "data": [{"id": "must-not-be-accepted"}]
+        }))
+        .is_err());
     }
 
     #[test]
@@ -1345,6 +1405,69 @@ mod tests {
         )
         .unwrap();
         assert_eq!(retained_refresh.refresh_token, "new-refresh");
+    }
+
+    #[test]
+    fn disconnect_takes_and_clears_the_local_session_before_revocation() {
+        let _env_guard = crate::paths::data_dir_env_lock();
+        let dir = std::env::temp_dir().join(format!(
+            "oleafly-aipass-disconnect-{}-{}",
+            std::process::id(),
+            random_urlsafe(12).unwrap()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::env::set_var("OLEAFLY_DATA_DIR", &dir);
+        let tokens = StoredTokens {
+            access_token: "access-token".into(),
+            refresh_token: "refresh-token".into(),
+            expires_at: 10,
+            scope: OAUTH_SCOPE.into(),
+            profile: None,
+        };
+        write_tokens(&tokens).unwrap();
+
+        let taken = take_tokens_for_disconnect().unwrap();
+        let remaining = read_tokens().unwrap();
+        std::env::remove_var("OLEAFLY_DATA_DIR");
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert_eq!(taken, Some(tokens));
+        assert!(remaining.is_none());
+    }
+
+    #[test]
+    fn connecting_atomically_replaces_and_returns_the_previous_session() {
+        let _env_guard = crate::paths::data_dir_env_lock();
+        let dir = std::env::temp_dir().join(format!(
+            "oleafly-aipass-connect-{}-{}",
+            std::process::id(),
+            random_urlsafe(12).unwrap()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::env::set_var("OLEAFLY_DATA_DIR", &dir);
+        let previous = StoredTokens {
+            access_token: "old-access-token".into(),
+            refresh_token: "old-refresh-token".into(),
+            expires_at: 10,
+            scope: OAUTH_SCOPE.into(),
+            profile: None,
+        };
+        let replacement = StoredTokens {
+            access_token: "new-access-token".into(),
+            refresh_token: "new-refresh-token".into(),
+            expires_at: 20,
+            scope: OAUTH_SCOPE.into(),
+            profile: None,
+        };
+        write_tokens(&previous).unwrap();
+
+        let returned = replace_tokens_for_connection(&replacement).unwrap();
+        let stored = read_tokens().unwrap();
+        std::env::remove_var("OLEAFLY_DATA_DIR");
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert_eq!(returned, Some(previous));
+        assert_eq!(stored, Some(replacement));
     }
 
     #[test]

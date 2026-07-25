@@ -209,7 +209,12 @@ export function pickActiveProvider(cfg: AIConfigLike): {
 } {
   const saved = cfg.ai_provider || "openai";
   const keys = { ...(cfg.ai_keys ?? {}) };
-  if (cfg.ai_api_key && !keys[saved]) keys[saved] = cfg.ai_api_key;
+  // Reserved account provider: never interpret an old/crafted ai_keys entry
+  // (or the legacy single-key field) as an AI Pass credential.
+  delete keys.aipass;
+  if (saved !== "aipass" && cfg.ai_api_key && !keys[saved]) {
+    keys[saved] = cfg.ai_api_key;
+  }
   const configured = Object.keys(keys).filter((k) => (keys[k] ?? "").trim());
   if (cfg.aipass_connected && !configured.includes("aipass")) configured.push("aipass");
   const savedConfigured =

@@ -89,4 +89,33 @@ describe("AI Pass native fetch bridge", () => {
 
     await expect(response.text()).rejects.toThrow("exceeded the size limit");
   });
+
+  it("cancels native work when a response chunk cannot be decoded", async () => {
+    let receive: ((event: AiPassStreamEvent) => void) | undefined;
+    const invoke = vi.fn(async (command: string) => {
+      if (command === "aipass_chat_completions") {
+        return { status: 200, content_type: "text/event-stream" };
+      }
+      return true;
+    });
+    const fetch = createAiPassFetch(
+      invoke,
+      (handler) => {
+        receive = handler;
+        return { onmessage: handler };
+      },
+    );
+    const response = await fetch("https://browser.invalid", {
+      method: "POST",
+      body: '{"model":"live","messages":[],"stream":true}',
+    });
+
+    receive?.({ event: "chunk", data: "not valid base64!" });
+
+    await expect(response.text()).rejects.toThrow("invalid response chunk");
+    expect(invoke).toHaveBeenCalledWith(
+      "aipass_cancel_request",
+      expect.objectContaining({ requestId: expect.any(String) }),
+    );
+  });
 });

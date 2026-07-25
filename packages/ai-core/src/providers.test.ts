@@ -102,4 +102,22 @@ describe("pickActiveProvider", () => {
       aipass_connected: true,
     })).toBe(true);
   });
+
+  it("never treats an ai_keys entry as an AI Pass credential", () => {
+    const r = pickActiveProvider({
+      ai_provider: "aipass",
+      ai_model: "stale-model",
+      ai_keys: {
+        aipass: "must-not-be-used",
+        openai: "existing-openai-key",
+      },
+      aipass_connected: false,
+    });
+
+    expect(r).toEqual({
+      providerId: "openai",
+      modelId: defaultModel("openai"),
+      credential: "existing-openai-key",
+    });
+  });
 });

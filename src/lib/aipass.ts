@@ -69,6 +69,9 @@ export function createAiPassFetch(
     let streamController!: ReadableStreamDefaultController<Uint8Array>;
     let settled = false;
     let removeAbortListener = () => {};
+    const cancelNative = () => {
+      void invokeCommand("aipass_cancel_request", { requestId }).catch(() => {});
+    };
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
         streamController = controller;
@@ -77,7 +80,7 @@ export function createAiPassFetch(
         if (settled) return;
         settled = true;
         removeAbortListener();
-        void invokeCommand("aipass_cancel_request", { requestId }).catch(() => {});
+        cancelNative();
       },
     });
     const channel = createChannel((event) => {
@@ -88,6 +91,7 @@ export function createAiPassFetch(
         } catch {
           settled = true;
           removeAbortListener();
+          cancelNative();
           streamController.error(new Error("AI Pass returned an invalid response chunk."));
         }
         return;
@@ -103,7 +107,10 @@ export function createAiPassFetch(
 
     const onAbort = () => {
       if (settled) return;
-      void invokeCommand("aipass_cancel_request", { requestId }).catch(() => {});
+      settled = true;
+      removeAbortListener();
+      cancelNative();
+      streamController.error(abortError());
     };
     if (init.signal) {
       init.signal.addEventListener("abort", onAbort, { once: true });
@@ -121,6 +128,7 @@ export function createAiPassFetch(
       if (!settled) {
         settled = true;
         removeAbortListener();
+        cancelNative();
         streamController.error(error);
       }
       if (init.signal?.aborted) throw abortError();
@@ -135,12 +143,29 @@ export function createAiPassFetch(
       throw abortError();
     }
     if (!Number.isInteger(meta.status) || meta.status < 200 || meta.status > 599) {
-      throw new Error("AI Pass native transport returned an invalid HTTP status.");
+      const error = new Error("AI Pass native transport returned an invalid HTTP status.");
+      if (!settled) {
+        settled = true;
+        removeAbortListener();
+        cancelNative();
+        streamController.error(error);
+      }
+      throw error;
     }
-    return new Response(body, {
-      status: meta.status,
-      headers: { "content-type": meta.content_type },
-    });
+    try {
+      return new Response(body, {
+        status: meta.status,
+        headers: { "content-type": meta.content_type },
+      });
+    } catch (error) {
+      if (!settled) {
+        settled = true;
+        removeAbortListener();
+        cancelNative();
+        streamController.error(error);
+      }
+      throw error;
+    }
   };
 }
 

@@ -122,12 +122,13 @@ pub fn read_config() -> Result<AppConfig, String> {
 fn hydrate_secrets(mut cfg: AppConfig) -> Result<AppConfig, String> {
     cfg.github_token = secrets::resolve_secret(secrets::github_token_account(), &cfg.github_token)?;
     cfg.mcp_token = secrets::resolve_secret(secrets::mcp_token_account(), &cfg.mcp_token)?;
+    cfg.ai_keys.remove("aipass");
     for (provider, value) in secrets::read_ai_secrets()? {
         if provider == "__legacy__" {
             if cfg.ai_api_key.is_empty() {
                 cfg.ai_api_key = value;
             }
-        } else {
+        } else if provider != "aipass" {
             cfg.ai_keys.insert(provider, value);
         }
     }
@@ -144,6 +145,7 @@ pub fn write_config(config: &AppConfig) -> Result<(), String> {
 
 fn persist_without_plaintext_secrets(config: &AppConfig) -> Result<(), String> {
     let mut ai_secrets = config.ai_keys.clone();
+    ai_secrets.remove("aipass");
     if !config.ai_api_key.is_empty() {
         ai_secrets.insert("__legacy__".to_string(), config.ai_api_key.clone());
     }
@@ -305,5 +307,30 @@ mod tests {
         let cfg: AppConfig = serde_json::from_str("{}").unwrap();
         assert_eq!(cfg.mcp_port, 5323);
         assert_eq!(cfg.mcp_approval_policy, "ask");
+    }
+
+    #[test]
+    fn aipass_never_persists_as_an_api_key_provider() {
+        let _env_guard = crate::paths::data_dir_env_lock();
+        let dir = temp_dir();
+        std::env::set_var("OLEAFLY_DATA_DIR", &dir);
+        let cfg = AppConfig {
+            ai_keys: HashMap::from([
+                ("aipass".to_string(), "must-not-be-stored".to_string()),
+                ("openai".to_string(), "existing-openai-key".to_string()),
+            ]),
+            ..Default::default()
+        };
+
+        write_config(&cfg).unwrap();
+        let stored = secrets::read_ai_secrets().unwrap();
+        std::env::remove_var("OLEAFLY_DATA_DIR");
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert!(!stored.contains_key("aipass"));
+        assert_eq!(
+            stored.get("openai").map(String::as_str),
+            Some("existing-openai-key")
+        );
     }
 }

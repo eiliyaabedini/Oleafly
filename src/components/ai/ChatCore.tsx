@@ -351,7 +351,9 @@ export function ChatCore() {
         customPromptRef.current = cfg.ai_system_prompt || "";
         const keys = { ...(cfg.ai_keys ?? {}) };
         // Fold the legacy single key into the map so it counts as configured.
-        if (cfg.ai_api_key && !keys[saved]) keys[saved] = cfg.ai_api_key;
+        if (saved !== "aipass" && cfg.ai_api_key && !keys[saved]) {
+          keys[saved] = cfg.ai_api_key;
+        }
         // Presence marker only. OAuth bearer tokens remain in Rust and never
         // enter this map, React state, config events, or browser persistence.
         if (cfg.aipass_connected) keys.aipass = "native-account";

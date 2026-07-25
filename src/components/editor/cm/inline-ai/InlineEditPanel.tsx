@@ -193,7 +193,12 @@ export function InlineEditPanel() {
   };
 
   const keys = { ...(config?.ai_keys ?? {}) };
-  if (config?.ai_api_key && config.ai_provider && !keys[config.ai_provider]) {
+  if (
+    config?.ai_api_key &&
+    config.ai_provider &&
+    config.ai_provider !== "aipass" &&
+    !keys[config.ai_provider]
+  ) {
     keys[config.ai_provider] = config.ai_api_key;
   }
   if (config?.aipass_connected) keys.aipass = "native-account";
