@@ -436,6 +436,8 @@ export interface AppConfig {
   ai_api_key: string;
   ai_provider: string;
   ai_model: string;
+  // Derived by Rust from native encrypted OAuth storage. No token is returned.
+  aipass_connected: boolean;
   // provider id -> API key (or host URL for Ollama).
   ai_keys: Record<string, string>;
   // User-authored extra instructions, sandboxed into the AI system prompt.

@@ -153,7 +153,7 @@ Oleafly sits where four product categories overlap: LaTeX editors, cloud writing
 | Files stay on your disk | Yes | No | Yes | Yes | No | Partly | No |
 | Version history | Real Git, automatic commits, diffs, one-click restore | Paid feature | Manual | Manual | Limited | Limited | No |
 | Push to GitHub | One click | Paid sync | Manual | Manual | No | No | No |
-| AI assistant | Built in: 9 providers, bring your own key or local Ollama | Paid add-on | None | Paid Copilot | None | Copilot / Gemini subscription | Upsell |
+| AI assistant | Built in: connect AI Pass, use 8 API-key providers, or local Ollama | Paid add-on | None | Paid Copilot | None | Copilot / Gemini subscription | Upsell |
 | AI edits gated by approval diffs | Yes, every file change | No | n/a | No | n/a | No | No |
 | AI compiles and verifies its own edits | Yes | No | n/a | No | n/a | n/a | n/a |
 | ATS resume checks | Yes, scored, with a parser's-eye preview | No | No | No | No | No | Claimed, methodology opaque |
@@ -379,8 +379,9 @@ flowchart TB
     SYNC["SyncTeX engine<br/>gunzip .synctex.gz · forward + inverse mapping"]
     GIT["Git engine<br/>auto-commit · diff · restore · push / pull"]
     GHAPI["GitHub module<br/>REST (reqwest) + OAuth device flow"]
+    AIPASS["AI Pass module<br/>OAuth + PKCE · token rotation · models · chat stream + abort"]
     CITE["Citation lookup<br/>async reqwest · DOI / arXiv / Crossref"]
-    CFG["Config store @ 0600<br/>GitHub token + AI keys · never returned to webview"]
+    CFG["Encrypted secret store @ 0600<br/>GitHub · AI keys · AI Pass tokens"]
     UPD["Updater<br/>minisign verify → install → relaunch"]
     ROUTER --> PATHS
     PATHS --> PROJ
@@ -390,6 +391,7 @@ flowchart TB
     ROUTER --> SYNC
     ROUTER --> GIT
     ROUTER --> GHAPI
+    ROUTER --> AIPASS
     ROUTER --> CITE
     ROUTER --> CFG
     ROUTER --> UPD
@@ -402,7 +404,8 @@ flowchart TB
   GHREMOTE["GitHub<br/>api.github.com + git remote"]
   CITEHOSTS["Citation sources<br/>doi.org · arXiv · Crossref"]
   FONTSRC["Font sources<br/>google/fonts (open-license TTFs)"]
-  PROV["AI providers<br/>8 providers (OpenAI · Anthropic · Groq · …) + local Ollama"]
+  PROV["Direct AI providers<br/>8 API-key providers · local Ollama"]
+  AIPASSHOST["AI Pass<br/>OAuth server · shared-wallet AI API"]
   FEEDS["Update feed<br/>GitHub Releases · latest.json + .sig"]
 
   IPCC -->|"invoke(cmd, args)"| IPC
@@ -420,10 +423,11 @@ flowchart TB
   GITBIN --> DISK
   GITBIN -->|"push / pull · token via env"| GHREMOTE
   GHAPI -->|"Bearer token · Rust-side only"| GHREMOTE
+  AIPASS -->|"Bearer token · Rust-side only"| AIPASSHOST
   CITE -->|"GET · BibTeX / Atom / JSON"| CITEHOSTS
   UPD -->|"GET latest.json · verify .sig"| FEEDS
   AICHAT -.->|"streamText · direct"| PROV
-  AICHAT -.->|"tool calls: read / edit / compile"| IPCC
+  AICHAT -.->|"tool calls + AI Pass native stream (no bearer)"| IPCC
 
   classDef fe fill:#e0f2fe,stroke:#0284c7,stroke-width:1px,color:#0c4a6e;
   classDef be fill:#fef3c7,stroke:#d97706,stroke-width:1px,color:#7c2d12;
@@ -431,8 +435,8 @@ flowchart TB
   classDef bound fill:#fee2e2,stroke:#dc2626,stroke-width:2px,color:#7f1d1d;
 
   class UI,CM,IDX,LINT,PDF,PRE,AICHAT,IPCC fe;
-  class ROUTER,PATHS,PROJ,ASSETS,COMPILE,TAG,SYNC,GIT,GHAPI,CITE,CFG,UPD be;
-  class TEC,TEX,GITBIN,DISK,GHREMOTE,CITEHOSTS,FONTSRC,PROV,FEEDS ext;
+  class ROUTER,PATHS,PROJ,ASSETS,COMPILE,TAG,SYNC,GIT,GHAPI,AIPASS,CITE,CFG,UPD be;
+  class TEC,TEX,GITBIN,DISK,GHREMOTE,CITEHOSTS,FONTSRC,PROV,AIPASSHOST,FEEDS ext;
   class IPC bound;
 
   style FE fill:none,stroke:#0284c7,stroke-width:2px,color:#0c4a6e;

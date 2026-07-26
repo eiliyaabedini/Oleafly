@@ -25,6 +25,10 @@ pub struct AppConfig {
     /// Active AI model id.
     #[serde(default)]
     pub ai_model: String,
+    /// Derived, never trusted from disk: whether native AI Pass OAuth tokens
+    /// are present. Tokens themselves never enter AppConfig or the webview.
+    #[serde(default)]
+    pub aipass_connected: bool,
     /// Per-provider credentials: provider id -> API key (or host URL for Ollama).
     #[serde(default)]
     pub ai_keys: HashMap<String, String>,
@@ -76,6 +80,7 @@ impl Default for AppConfig {
             ai_api_key: String::new(),
             ai_provider: String::new(),
             ai_model: String::new(),
+            aipass_connected: false,
             ai_keys: HashMap::new(),
             ai_system_prompt: String::new(),
             ai_pdf_capture: true,
@@ -117,12 +122,13 @@ pub fn read_config() -> Result<AppConfig, String> {
 fn hydrate_secrets(mut cfg: AppConfig) -> Result<AppConfig, String> {
     cfg.github_token = secrets::resolve_secret(secrets::github_token_account(), &cfg.github_token)?;
     cfg.mcp_token = secrets::resolve_secret(secrets::mcp_token_account(), &cfg.mcp_token)?;
+    cfg.ai_keys.remove("aipass");
     for (provider, value) in secrets::read_ai_secrets()? {
         if provider == "__legacy__" {
             if cfg.ai_api_key.is_empty() {
                 cfg.ai_api_key = value;
             }
-        } else {
+        } else if provider != "aipass" {
             cfg.ai_keys.insert(provider, value);
         }
     }
@@ -139,6 +145,7 @@ pub fn write_config(config: &AppConfig) -> Result<(), String> {
 
 fn persist_without_plaintext_secrets(config: &AppConfig) -> Result<(), String> {
     let mut ai_secrets = config.ai_keys.clone();
+    ai_secrets.remove("aipass");
     if !config.ai_api_key.is_empty() {
         ai_secrets.insert("__legacy__".to_string(), config.ai_api_key.clone());
     }
@@ -152,6 +159,7 @@ fn persist_without_plaintext_secrets(config: &AppConfig) -> Result<(), String> {
     disk.mcp_token = String::new();
     disk.ai_keys = HashMap::new();
     disk.ai_api_key = String::new();
+    disk.aipass_connected = false;
     disk.github_connected = false;
     write_config_at(&config_path()?, &disk)
 }
@@ -196,6 +204,7 @@ pub fn get_config() -> Result<AppConfig, String> {
     // (The AI keys stay, since the frontend calls those providers directly.)
     cfg.github_connected = !cfg.github_token.is_empty();
     cfg.github_token = String::new();
+    cfg.aipass_connected = crate::aipass::local_status()?.connected;
     // Same for the MCP bearer token: only `mcp_connection_info` may hand it
     // to the webview (for Settings copy buttons while the server is running).
     cfg.mcp_token = String::new();
@@ -214,6 +223,7 @@ pub fn set_config(mut config: AppConfig) -> Result<(), String> {
         }
     }
     config.github_connected = false;
+    config.aipass_connected = false;
     write_config(&config)
 }
 
@@ -297,5 +307,30 @@ mod tests {
         let cfg: AppConfig = serde_json::from_str("{}").unwrap();
         assert_eq!(cfg.mcp_port, 5323);
         assert_eq!(cfg.mcp_approval_policy, "ask");
+    }
+
+    #[test]
+    fn aipass_never_persists_as_an_api_key_provider() {
+        let _env_guard = crate::paths::data_dir_env_lock();
+        let dir = temp_dir();
+        std::env::set_var("OLEAFLY_DATA_DIR", &dir);
+        let cfg = AppConfig {
+            ai_keys: HashMap::from([
+                ("aipass".to_string(), "must-not-be-stored".to_string()),
+                ("openai".to_string(), "existing-openai-key".to_string()),
+            ]),
+            ..Default::default()
+        };
+
+        write_config(&cfg).unwrap();
+        let stored = secrets::read_ai_secrets().unwrap();
+        std::env::remove_var("OLEAFLY_DATA_DIR");
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert!(!stored.contains_key("aipass"));
+        assert_eq!(
+            stored.get("openai").map(String::as_str),
+            Some("existing-openai-key")
+        );
     }
 }

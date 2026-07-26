@@ -130,6 +130,14 @@ jobs:
           # succeeds but produces no auto-update feed.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Optional AI Pass account connection. A public OAuth client ID
+          # identifies the app; it is not an API key or client secret. Release
+          # maintainers register their own client and exact callback. A private
+          # fork preview may inject AI Pass's existing first-party PUBLIC client
+          # only when that exact callback is registered. This is evaluation-only,
+          # not upstream release guidance. Never echo either protected value.
+          AIPASS_OAUTH_CLIENT_ID: ${{ secrets.AIPASS_OAUTH_CLIENT_ID }}
+          AIPASS_OAUTH_REDIRECT_URI: ${{ secrets.AIPASS_OAUTH_REDIRECT_URI }}
         with:
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: "Oleafly ${{ github.event.inputs.tag || github.ref_name }}"

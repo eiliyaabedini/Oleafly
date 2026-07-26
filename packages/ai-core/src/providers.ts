@@ -11,6 +11,7 @@ export interface AIProvider {
   id: string;
   name: string;
   blurb: string;
+  auth?: "api-key" | "host" | "oauth";
   signupUrl?: string;
   baseURL?: string;
   isHost?: boolean;
@@ -18,6 +19,14 @@ export interface AIProvider {
 }
 
 export const PROVIDERS: AIProvider[] = [
+  {
+    id: "aipass",
+    name: "AI Pass",
+    blurb: "Connect your AI Pass account and use its shared wallet. No API key.",
+    auth: "oauth",
+    // The native transport discovers every available model at runtime.
+    models: [],
+  },
   {
     id: "openai",
     name: "OpenAI",
@@ -120,6 +129,7 @@ export const PROVIDERS: AIProvider[] = [
     blurb: "Runs models on your machine. No key needed - install Ollama and pull a model.",
     signupUrl: "https://ollama.com/download",
     isHost: true,
+    auth: "host",
     models: [
       { id: "llama3.2", name: "Llama 3.2" },
       { id: "qwen2.5", name: "Qwen 2.5" },
@@ -138,7 +148,8 @@ export function getProvider(id: string): AIProvider | undefined {
 }
 
 export function defaultModel(providerId: string): string {
-  return getProvider(providerId)?.models[0]?.id ?? "gpt-4o-mini";
+  const provider = getProvider(providerId);
+  return provider ? provider.models[0]?.id ?? "" : "gpt-4o-mini";
 }
 
 export function credentialMeta(providerId: string): { label: string; placeholder: string } {
@@ -146,10 +157,16 @@ export function credentialMeta(providerId: string): { label: string; placeholder
   if (p?.isHost) {
     return { label: "Host URL", placeholder: "http://localhost:11434" };
   }
+  if (p?.auth === "oauth") {
+    return { label: "Account", placeholder: "" };
+  }
   return { label: "API key", placeholder: "sk-…" };
 }
 
 export function buildModel(provider: string, model: string, credential: string) {
+  if (provider === "aipass") {
+    throw new Error("AI Pass requires the Oleafly native authenticated transport.");
+  }
   if (provider === "anthropic") {
     return createAnthropic({ apiKey: credential })(model);
   }
@@ -182,6 +199,7 @@ export interface AIConfigLike {
   ai_model?: string;
   ai_api_key?: string;
   ai_keys?: Record<string, string>;
+  aipass_connected?: boolean;
 }
 
 export function pickActiveProvider(cfg: AIConfigLike): {
@@ -191,9 +209,19 @@ export function pickActiveProvider(cfg: AIConfigLike): {
 } {
   const saved = cfg.ai_provider || "openai";
   const keys = { ...(cfg.ai_keys ?? {}) };
-  if (cfg.ai_api_key && !keys[saved]) keys[saved] = cfg.ai_api_key;
+  // Reserved account provider: never interpret an old/crafted ai_keys entry
+  // (or the legacy single-key field) as an AI Pass credential.
+  delete keys.aipass;
+  if (saved !== "aipass" && cfg.ai_api_key && !keys[saved]) {
+    keys[saved] = cfg.ai_api_key;
+  }
   const configured = Object.keys(keys).filter((k) => (keys[k] ?? "").trim());
-  const providerId = (keys[saved] ?? "").trim() ? saved : configured[0] ?? saved;
+  if (cfg.aipass_connected && !configured.includes("aipass")) configured.push("aipass");
+  const savedConfigured =
+    saved === "aipass"
+      ? cfg.aipass_connected === true
+      : (keys[saved] ?? "").trim().length > 0;
+  const providerId = savedConfigured ? saved : configured[0] ?? saved;
   const credential = keys[providerId] ?? "";
   const modelId =
     providerId === saved && cfg.ai_model ? cfg.ai_model : defaultModel(providerId);
@@ -201,7 +229,10 @@ export function pickActiveProvider(cfg: AIConfigLike): {
 }
 
 export function hasConfiguredProvider(cfg: AIConfigLike): boolean {
-  return pickActiveProvider(cfg).credential.trim().length > 0;
+  const active = pickActiveProvider(cfg);
+  return active.providerId === "aipass"
+    ? cfg.aipass_connected === true
+    : active.credential.trim().length > 0;
 }
 
 export function resolveActiveModel(cfg: AIConfigLike): {

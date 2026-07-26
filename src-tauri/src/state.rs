@@ -1,7 +1,9 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
+use std::sync::Arc;
 use tauri::async_runtime::Mutex;
+use tokio::sync::oneshot;
 
 /// Process-wide app state.
 pub struct AppState {
@@ -20,6 +22,14 @@ pub struct AppState {
     /// Absolute paths the user has just written via a native save/export dialog.
     /// `reveal_in_dir` may open these even when they sit outside `~/.oleafly`.
     pub reveal_allowlist: Mutex<VecDeque<PathBuf>>,
+    /// Serializes access-token refresh and atomic refresh-token rotation.
+    pub aipass_auth_lock: Mutex<()>,
+    /// Prevents overlapping native OAuth callback listeners.
+    pub aipass_connect_lock: Mutex<()>,
+    /// Abort handles for wallet-billed AI Pass requests. The map is shared
+    /// with spawned response-forwarding tasks so Stop and Disconnect terminate
+    /// the upstream HTTP body, not only rendering in the webview.
+    pub aipass_requests: Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>,
 }
 
 impl Default for AppState {
@@ -31,6 +41,9 @@ impl Default for AppState {
             compile_ticket: AtomicU64::new(0),
             latest_compile: Mutex::new(HashMap::new()),
             reveal_allowlist: Mutex::new(VecDeque::new()),
+            aipass_auth_lock: Mutex::new(()),
+            aipass_connect_lock: Mutex::new(()),
+            aipass_requests: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }

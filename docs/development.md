@@ -126,8 +126,9 @@ engine capability becomes truthful. Do not add extension-based UI exceptions.
   live here.
 - Secrets: `~/.oleafly/ai-secrets.json` and
   `~/.oleafly/app-secrets.json`, encrypted with the owner-only
-  `~/.oleafly/ai-secrets.key`. GitHub and MCP share `app-secrets.json`. AI
-  provider credentials use `ai-secrets.json`.
+  `~/.oleafly/ai-secrets.key`. GitHub, MCP, and the atomic AI Pass OAuth token
+  snapshot share `app-secrets.json`. AI provider credentials use
+  `ai-secrets.json`.
 - Projects: `~/.oleafly/projects/<id>/`, plain folders with `.git`.
 - App log: `~/.oleafly/app.log`.
 
@@ -143,6 +144,55 @@ engine capability becomes truthful. Do not add extension-based UI exceptions.
 ## Sync and GitHub internals
 
 OAuth device flow runs server-side in Rust (`src-tauri/src/github.rs`) because the OAuth endpoints aren't CORS-enabled. The API calls (api.github.com) happen from the frontend.
+
+## Optional AI Pass build configuration
+
+AI Pass OAuth, token refresh, model discovery, chat streaming, and cancellation
+run in Rust. The OAuth client ID is a public identifier for the integration,
+not an API key, client secret, or bearer credential.
+
+### Evaluation and maintainer replacement
+
+If a verified evaluation build is linked from a draft, download and install
+that build, then click **Connect AI Pass**. The private fork build may receive
+AI Pass's existing first-party PUBLIC client ID from a repository secret or
+protected CI/build configuration only when its exact callback has been
+registered. This is evaluation-only, not an API key or client secret, and not
+upstream release guidance. The value must never be committed, printed, logged,
+or included in an upstream source archive.
+
+To replace it with your own client:
+
+1. Register Oleafly in the
+   [AI Pass Developer Dashboard](https://aipass.one/panel/developer).
+2. Register `http://127.0.0.1:38137/oauth/callback` exactly.
+3. Replace any evaluation ID by setting `AIPASS_OAUTH_CLIENT_ID` to your public
+   client ID, and set `AIPASS_OAUTH_REDIRECT_URI` to that exact callback through
+   protected build configuration:
+
+```env
+AIPASS_OAUTH_CLIENT_ID=
+AIPASS_OAUTH_REDIRECT_URI=http://127.0.0.1:38137/oauth/callback
+```
+
+Keep values out of source and examples. The native core rejects other schemes,
+hosts, implicit ports, credentials, query strings, and fragments. Upstream
+source stays configurable, and builds missing either value fail closed by
+disabling only the AI Pass connection card.
+
+Users then install Oleafly and click **Connect AI Pass** without providing
+or pasting model API keys; requests spend from their own shared AI Pass wallet,
+and every existing provider remains available. If the maintainer uses their own
+OAuth client, eligible paid usage is attributed to Oleafly's integration and
+may earn developer revenue share under the
+[AI Pass Terms of Service](https://aipass.one/terms-of-service). Usage covered
+by free, trial, promotional, grant, bonus, or other unpaid usage is excluded.
+Dashboard terms govern rates, eligibility, and payouts. This is optional
+context, not a guarantee or a reason to merge. Thank you for considering the
+contribution.
+
+See the [AI Pass REST API guide](https://aipass.one/docs/rest) for the OAuth,
+model-discovery, and API contracts.
 
 ## Coding style
 
