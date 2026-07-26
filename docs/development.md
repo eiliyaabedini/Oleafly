@@ -148,41 +148,48 @@ OAuth device flow runs server-side in Rust (`src-tauri/src/github.rs`) because t
 ## Optional AI Pass build configuration
 
 AI Pass OAuth, token refresh, model discovery, chat streaming, and cancellation
-run in Rust. Before shipping the integration, the Oleafly maintainer must:
+run in Rust. The OAuth client ID is a public identifier for the integration,
+not an API key, client secret, or bearer credential.
 
-1. Register an OAuth client for Oleafly in the
+### Evaluation and maintainer replacement
+
+If a verified evaluation build is linked from a draft, download and install
+that build, then click **Connect AI Pass**. The private fork build may receive
+AI Pass's existing first-party PUBLIC client ID from a repository secret or
+protected CI/build configuration only when its exact callback has been
+registered. This is evaluation-only, not an API key or client secret, and not
+upstream release guidance. The value must never be committed, printed, logged,
+or included in an upstream source archive.
+
+To replace it with your own client:
+
+1. Register Oleafly in the
    [AI Pass Developer Dashboard](https://aipass.one/panel/developer).
-2. Register the exact redirect URI that the build will use.
-3. Supply that maintainer-owned public client ID and redirect URI through the
+2. Register `http://127.0.0.1:38137/oauth/callback` exactly.
+3. Replace any evaluation ID by setting `AIPASS_OAUTH_CLIENT_ID` to your public
+   client ID, and set `AIPASS_OAUTH_REDIRECT_URI` to that exact callback through
    protected build configuration:
 
 ```env
 AIPASS_OAUTH_CLIENT_ID=
-AIPASS_OAUTH_REDIRECT_URI=
+AIPASS_OAUTH_REDIRECT_URI=http://127.0.0.1:38137/oauth/callback
 ```
 
-Keep real deployment values out of source and example files. The redirect must
-exactly match the URI registered on that client and must use
-`http://127.0.0.1:<explicit-port>/<non-root-path>`. The native core rejects
-other schemes, hosts, implicit ports, credentials, query strings, and
-fragments. Builds missing either value fail closed by disabling only the AI
-Pass connection card.
+Keep values out of source and examples. The native core rejects other schemes,
+hosts, implicit ports, credentials, query strings, and fragments. Upstream
+source stays configurable, and builds missing either value fail closed by
+disabling only the AI Pass connection card.
 
-Do not use an AI Pass first-party client ID in an upstream or release build.
-Such a client may be supplied only for private preview testing. The public
-client ID is not a client secret, but keeping it in the protected build
-configuration ensures each release is attributed to the maintainer's own OAuth
-client.
-
-For users, this means installing Oleafly and clicking **Connect AI Pass**
-instead of acquiring and pasting provider API keys. They spend from their own
-shared AI Pass wallet and can select from the supported models returned at
-runtime. For the maintainer, the owned OAuth client provides integration
-attribution, and eligible paid usage generated through the integration can earn
-developer revenue share under AI Pass terms. Free, trial, promotional, grant,
-bonus, and other unpaid usage is excluded. Eligibility, rates, minimum payout
-thresholds, and payout timing are governed by the developer dashboard and
-[AI Pass Terms of Service](https://aipass.one/terms-of-service).
+Users then install Oleafly and click **Connect AI Pass** without providing
+or pasting model API keys; requests spend from their own shared AI Pass wallet,
+and every existing provider remains available. If the maintainer uses their own
+OAuth client, eligible paid usage is attributed to Oleafly's integration and
+may earn developer revenue share under the
+[AI Pass Terms of Service](https://aipass.one/terms-of-service). Usage covered
+by free, trial, promotional, grant, bonus, or other unpaid usage is excluded.
+Dashboard terms govern rates, eligibility, and payouts. This is optional
+context, not a guarantee or a reason to merge. Thank you for considering the
+contribution.
 
 See the [AI Pass REST API guide](https://aipass.one/docs/rest) for the OAuth,
 model-discovery, and API contracts.
