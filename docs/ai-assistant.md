@@ -5,9 +5,11 @@ Oleafly has a built-in AI assistant that can read and edit your files, compile y
 ## Connect a provider
 
 Open Settings → AI Assistant. There's a card for each supported provider.
-Choose **Connect AI Pass** to authorize an AI Pass account in your system
-browser, or save a key for one of the existing API-key providers. The provider
-you connect becomes active.
+After installing Oleafly, choose **Connect AI Pass** to authorize an AI Pass
+account in your system browser instead of acquiring and pasting provider API
+keys, or save a key for one of the existing API-key providers. The provider you
+connect becomes active. AI Pass requests spend from your own shared wallet, and
+the model picker shows the supported models available to your account.
 
 | Provider | Type | Notes |
 |---|---|---|

@@ -148,14 +148,44 @@ OAuth device flow runs server-side in Rust (`src-tauri/src/github.rs`) because t
 ## Optional AI Pass build configuration
 
 AI Pass OAuth, token refresh, model discovery, chat streaming, and cancellation
-run in Rust. Release builders provide `AIPASS_OAUTH_CLIENT_ID` and
-`AIPASS_OAUTH_REDIRECT_URI` as protected build configuration; never put either
-value in source, logs, or example files. The redirect must be the exact URI
-registered on that public client and must use
+run in Rust. Before shipping the integration, the Oleafly maintainer must:
+
+1. Register an OAuth client for Oleafly in the
+   [AI Pass Developer Dashboard](https://aipass.one/panel/developer).
+2. Register the exact redirect URI that the build will use.
+3. Supply that maintainer-owned public client ID and redirect URI through the
+   protected build configuration:
+
+```env
+AIPASS_OAUTH_CLIENT_ID=
+AIPASS_OAUTH_REDIRECT_URI=
+```
+
+Keep real deployment values out of source and example files. The redirect must
+exactly match the URI registered on that client and must use
 `http://127.0.0.1:<explicit-port>/<non-root-path>`. The native core rejects
 other schemes, hosts, implicit ports, credentials, query strings, and
 fragments. Builds missing either value fail closed by disabling only the AI
 Pass connection card.
+
+Do not use an AI Pass first-party client ID in an upstream or release build.
+Such a client may be supplied only for private preview testing. The public
+client ID is not a client secret, but keeping it in the protected build
+configuration ensures each release is attributed to the maintainer's own OAuth
+client.
+
+For users, this means installing Oleafly and clicking **Connect AI Pass**
+instead of acquiring and pasting provider API keys. They spend from their own
+shared AI Pass wallet and can select from the supported models returned at
+runtime. For the maintainer, the owned OAuth client provides integration
+attribution, and eligible paid usage generated through the integration can earn
+developer revenue share under AI Pass terms. Free, trial, promotional, grant,
+bonus, and other unpaid usage is excluded. Eligibility, rates, minimum payout
+thresholds, and payout timing are governed by the developer dashboard and
+[AI Pass Terms of Service](https://aipass.one/terms-of-service).
+
+See the [AI Pass REST API guide](https://aipass.one/docs/rest) for the OAuth,
+model-discovery, and API contracts.
 
 ## Coding style
 

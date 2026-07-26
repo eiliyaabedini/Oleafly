@@ -169,6 +169,8 @@ pub enum NativeStreamEvent {
     Error { message: String },
 }
 
+// The release maintainer supplies their own public OAuth client ID through
+// protected build/runtime configuration; no deployment client ID is embedded.
 fn protected_client_id() -> Option<String> {
     std::env::var("AIPASS_OAUTH_CLIENT_ID")
         .ok()
@@ -177,6 +179,7 @@ fn protected_client_id() -> Option<String> {
         .filter(|value| !value.is_empty() && value.len() <= 512)
 }
 
+// This must exactly match the redirect URI registered for that OAuth client.
 fn protected_callback_uri() -> Option<String> {
     std::env::var("AIPASS_OAUTH_REDIRECT_URI")
         .ok()
